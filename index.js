@@ -8,23 +8,27 @@ const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN || '';
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'dzboard_verify_123';
 const API_URL = 'https://dzboard.onrender.com/api';
 
-// Webhook Verification
+// Webhook Verification - GET
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
+  console.log('GET Webhook:', { mode, token, challenge });
+
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     console.log('Webhook verified!');
     res.status(200).send(challenge);
   } else {
-    res.sendStatus(403);
+    console.log('Verification failed!');
+    res.status(403).send('Forbidden');
   }
 });
 
-// Webhook - استقبال الرسائل
+// Webhook - POST
 app.post('/webhook', (req, res) => {
   const body = req.body;
+  console.log('POST Webhook:', JSON.stringify(body));
 
   if (body.object === 'page') {
     body.entry.forEach(entry => {
@@ -42,7 +46,6 @@ app.post('/webhook', (req, res) => {
   }
 });
 
-// إرسال رسالة
 async function sendMessage(senderId, text) {
   try {
     await axios.post(
@@ -57,7 +60,6 @@ async function sendMessage(senderId, text) {
   }
 }
 
-// إرسال أزرار
 async function sendButtons(senderId, text, buttons) {
   try {
     await axios.post(
@@ -81,7 +83,6 @@ async function sendButtons(senderId, text, buttons) {
   }
 }
 
-// معالجة الرسائل
 async function handleMessage(senderId, message) {
   const text = message.text || '';
   
@@ -92,7 +93,6 @@ async function handleMessage(senderId, message) {
       { type: 'postback', title: '📞 اتصل بنا', payload: 'CONTACT' }
     ]);
   } else if (text) {
-    // بحث عن منتج
     try {
       const res = await axios.get(`${API_URL}/products?include_inactive=false`);
       const products = res.data.products || [];
@@ -119,7 +119,6 @@ async function handleMessage(senderId, message) {
   }
 }
 
-// معالجة الأزرار
 async function handlePostback(senderId, postback) {
   const payload = postback.payload;
   
