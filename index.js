@@ -16,12 +16,13 @@ app.get('/webhook', (req, res) => {
 
   console.log('GET Webhook:', { mode, token, challenge });
 
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+  // ✅ الشرط الصحيح - mode موجود + token متطابق
+  if (mode && token === VERIFY_TOKEN) {
     console.log('Webhook verified!');
     res.status(200).send(challenge);
   } else {
     console.log('Verification failed!');
-    res.status(403).send('Forbidden');
+    res.sendStatus(403);
   }
 });
 
