@@ -78,28 +78,51 @@ async function sendButtons(senderId, text, buttons) {
 
 // ✅ Carousel للمنتجات
 async function sendProductCarousel(senderId, products) {
-  const elements = products.map(product => {
+  for (const product of products) {
+    // 1. أرسل الصورة الكبيرة أولاً
+    if (product.image) {
+      try {
+        await fbApi.post('', {
+          recipient: { id: senderId },
+          message: {
+            attachment: {
+              type: 'image',
+              payload: { url: product.image, is_reusable: true }
+            }
+          }
+        });
+      } catch (err) {
+        console.error('Image send error:', err.response?.data || err.message);
+      }
+    }
+
+    // 2. ثم أرسل التفاصيل مع الأزرار
     const buttons = [
       { type: 'web_url', title: '🛒 اطلب الآن', url: `https://dzboard.vercel.app/checkout?product=${product.id}` }
     ];
     if (product.update_url) {
-      buttons.push({ type: 'web_url', title: '🔄 تحديث', url: product.update_url });
+      buttons.push({ type: 'web_url', title: '🔄 تحديث السوفتوير', url: product.update_url });
     }
-    return {
-      title: product.name,
-      subtitle: `💰 ${product.price} دج | 📦 ${product.stock > 0 ? 'متوفر' : 'غير متوفر'}`,
-      image_url: product.image || 'https://via.placeholder.com/300x200?text=DZBoard',
-      buttons
-    };
-  });
 
-  try {
-    await fbApi.post('', {
-      recipient: { id: senderId },
-      message: { attachment: { type: 'template', payload: { template_type: 'generic', elements } } }
-    });
-  } catch (err) {
-    console.error('Carousel Error:', err.response?.data || err.message);
+    try {
+      await fbApi.post('', {
+        recipient: { id: senderId },
+        message: {
+          attachment: {
+            type: 'template',
+            payload: {
+              template_type: 'button',
+              text: `📌 ${product.name}
+💰 ${product.price} دج
+📦 ${product.stock > 0 ? 'متوفر' : 'غير متوفر'}`,
+              buttons
+            }
+          }
+        }
+      });
+    } catch (err) {
+      console.error('Buttons send error:', err.response?.data || err.message);
+    }
   }
 }
 
