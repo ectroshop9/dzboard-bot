@@ -93,37 +93,58 @@ async function sendButtons(senderId, text, buttons) {
   });
 }
 
-// ✅ نظام العرض الاحترافي للمنتجات فقط (كاروسيل/بطاقات أفقية)
+// ✅ نظام العرض الاحترافي مع دعم المنتجات غير المحدودة وتكبير الصور
 async function sendProductList(senderId, products) {
-  const elements = products.slice(0, 10).map(product => {
-    const buttons = [
-      { type: 'web_url', title: '🛒 اطلب الآن', url: `https://dzboard.vercel.app/checkout?product=${product.id}` }
-    ];
+  // تقسيم المنتجات إلى مجموعات (10 كحد أقصى لكل مجموعة حسب قوانين فيسبوك)
+  const chunkSize = 10;
+  
+  for (let i = 0; i < products.length; i += chunkSize) {
+    const chunk = products.slice(i, i + chunkSize);
     
-    if (product.update_url) {
-      buttons.push({ type: 'web_url', title: '🔄 تحديث السوفتوير', url: product.update_url });
-    }
+    const elements = chunk.map(product => {
+      const buttons = [
+        { type: 'web_url', title: '🛒 اطلب الآن', url: `https://dzboard.vercel.app/checkout?product=${product.id}` }
+      ];
+      
+      if (product.update_url) {
+        buttons.push({ type: 'web_url', title: '🔄 تحديث السوفتوير', url: product.update_url });
+      }
 
-    return {
-      title: product.name,
-      image_url: product.image || 'https://dzboard.vercel.app/default-product.jpg', // صورة افتراضية إن لم توجد
-      subtitle: `💰 ${product.price} دج | 📦 ${product.stock > 0 ? 'متوفر' : 'غير متوفر'}`,
-      buttons: buttons
-    };
-  });
+      const imageUrl = product.image || 'https://dzboard.vercel.app/default-product.jpg'; // صورة افتراضية
 
-  await callFB_API(FB_API_URL, {
-    recipient: { id: senderId },
-    message: {
-      attachment: {
-        type: 'template',
-        payload: {
-          template_type: 'generic',
-          elements: elements
+      return {
+        title: product.name,
+        image_url: imageUrl,
+        subtitle: `💰 ${product.price} دج | 📦 ${product.stock > 0 ? 'متوفر' : 'غير متوفر'}`,
+        // 💡 لفتح الصورة بحجم كبير عند النقر عليها
+        default_action: {
+          type: "web_url",
+          url: imageUrl,
+          webview_height_ratio: "full" 
+        },
+        buttons: buttons
+      };
+    });
+
+    // إرسال المجموعة الحالية
+    await callFB_API(FB_API_URL, {
+      recipient: { id: senderId },
+      message: {
+        attachment: {
+          type: 'template',
+          payload: {
+            template_type: 'generic',
+            elements: elements
+          }
         }
       }
+    });
+
+    // تأخير بسيط إذا كان هناك المزيد من المنتجات لتجنب حظر الرسائل
+    if (i + chunkSize < products.length) {
+      await sleep(1000);
     }
-  });
+  }
 }
 
 // ==========================================
@@ -138,6 +159,10 @@ async function sendMainMenu(senderId) {
     { type: 'postback', title: '🛒 تصفح الأقسام', payload: 'BROWSE_PRODUCTS' },
     { type: 'postback', title: '🔍 البحث عن قطعة', payload: 'SEARCH' },
     { type: 'postback', title: '📦 تتبع طلبك', payload: 'TRACK_ORDER' }
+  ]);
+  await sendButtons(senderId, '🌐 روابط مهمة:', [
+    { type: 'web_url', title: '🛍️ زيارة المتجر', url: 'https://dzboard.vercel.app/' },
+    { type: 'web_url', title: '📝 طلب قطعة خاصة', url: 'https://dzboard.vercel.app/request-part' }
   ]);
 }
 
@@ -204,11 +229,11 @@ async function handleMessage(senderId, message) {
       const cleanName = normalizeText(p.name || '');
       const cleanCat = normalizeText(p.category || '');
       return cleanName.includes(cleanQuery) || cleanCat.includes(cleanQuery);
-    }).slice(0, 10);
+    });
 
     if (found.length > 0) {
       await sendText(senderId, `🔍 وجدنا ${found.length} نتائج لـ "${text}":`);
-      await sendProductList(senderId, found); // استخدام العرض الاحترافي الجديد
+      await sendProductList(senderId, found); // استخدام العرض الاحترافي الجديد مع التقسيم
     } else {
       await sendButtons(senderId, `❌ لم نجد نتائج لـ "${text}".\nيمكنك تجريب اختيار القسم مباشرة:`, [
         { type: 'postback', title: '📂 تصفح الأقسام', payload: 'BROWSE_PRODUCTS' },
@@ -282,11 +307,11 @@ async function handlePostback(senderId, postback) {
         if (payload.startsWith('CATEGORY_')) {
           const category = payload.replace('CATEGORY_', '');
           const products = await fetchProducts();
-          const found = products.filter(p => p.category === category).slice(0, 10);
+          const found = products.filter(p => p.category === category);
           
           if (found.length > 0) {
-            await sendProductList(senderId, found); // استخدام العرض الاحترافي الجديد
-            await sleep(1500); // تأخير بسيط حتى يشاهد المنتجات ثم نطلب رأيه
+            await sendProductList(senderId, found); // العرض الاحترافي مع دعم عدد كبير
+            await sleep(1500);
             await askRating(senderId);
           } else {
             await sendButtons(senderId, '📋 لا توجد قطع متوفرة في هذا القسم حالياً.', [
