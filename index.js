@@ -133,7 +133,7 @@ async function notifyAdmin(message) {
 
 async function trackOrder(senderId, orderId) {
   await sendButtons(senderId, `📦 تفاصيل الطلب رقم #${orderId}:`, [
-    { type: 'web_url', title: '📍 تتبع حالة الشحنة', url: `https://dzboard.vercel.app/track/${orderId}` },
+    { type: 'web_url', title: '📍 تتبع حالة الشحنة', url: `https://platform.dhd-dz.com/suivi?code=${orderId}` },
     { type: 'postback', title: '🔙 القائمة الرئيسية', payload: 'MAIN_MENU' }
   ]);
 }
