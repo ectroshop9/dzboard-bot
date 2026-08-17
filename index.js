@@ -8,7 +8,6 @@ const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN || '';
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'dzboard_verify_123';
 const API_URL = 'https://dzboard.onrender.com/api';
 
-// Webhook Verification - GET
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -16,17 +15,14 @@ app.get('/webhook', (req, res) => {
 
   console.log('GET Webhook:', { mode, token, challenge });
 
-  // ✅ الشرط الصحيح - mode موجود + token متطابق
   if (mode && token === VERIFY_TOKEN) {
     console.log('Webhook verified!');
     res.status(200).send(challenge);
   } else {
-    console.log('Verification failed!');
     res.sendStatus(403);
   }
 });
 
-// Webhook - POST
 app.post('/webhook', (req, res) => {
   const body = req.body;
   console.log('POST Webhook:', JSON.stringify(body));
@@ -51,10 +47,7 @@ async function sendMessage(senderId, text) {
   try {
     await axios.post(
       `https://graph.facebook.com/v18.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`,
-      {
-        recipient: { id: senderId },
-        message: { text }
-      }
+      { recipient: { id: senderId }, message: { text } }
     );
   } catch (err) {
     console.error('Send message error:', err.response?.data || err.message);
@@ -70,11 +63,7 @@ async function sendButtons(senderId, text, buttons) {
         message: {
           attachment: {
             type: 'template',
-            payload: {
-              template_type: 'button',
-              text,
-              buttons
-            }
+            payload: { template_type: 'button', text, buttons }
           }
         }
       }
@@ -86,21 +75,35 @@ async function sendButtons(senderId, text, buttons) {
 
 async function handleMessage(senderId, message) {
   const text = message.text || '';
-  
-  if (text.toLowerCase().includes('سلام') || text.toLowerCase().includes('مرحبا') || text === 'اهلا') {
-    await sendButtons(senderId, 'أهلاً! كيف أقدر نساعدك؟', [
+  const lower = text.toLowerCase();
+
+  // ✅ تحية - يرد بالأزرار
+  if (
+    lower.includes('سلام') ||
+    lower.includes('مرحبا') ||
+    lower.includes('اهلا') ||
+    lower === 'hi' ||
+    lower === 'hello' ||
+    lower === 'bonjour' ||
+    lower === 'salut'
+  ) {
+    await sendButtons(senderId, '👋 أهلاً بيك في DZBoard!\nكيف أقدر نساعدك؟', [
       { type: 'postback', title: '🛒 تصفح المنتجات', payload: 'BROWSE_PRODUCTS' },
       { type: 'postback', title: '🔍 البحث', payload: 'SEARCH' },
       { type: 'postback', title: '📞 اتصل بنا', payload: 'CONTACT' }
     ]);
-  } else if (text) {
+    return;
+  }
+
+  // ✅ بحث عن منتج
+  if (text) {
     try {
       const res = await axios.get(`${API_URL}/products?include_inactive=false`);
       const products = res.data.products || [];
-      const found = products.filter(p => 
-        p.name.toLowerCase().includes(text.toLowerCase())
+      const found = products.filter(p =>
+        p.name.toLowerCase().includes(lower)
       ).slice(0, 5);
-      
+
       if (found.length > 0) {
         for (const product of found) {
           const buttons = [
@@ -112,7 +115,7 @@ async function handleMessage(senderId, message) {
           await sendButtons(senderId, `${product.name}\n💰 ${product.price} دج\n📦 المخزون: ${product.stock}`, buttons);
         }
       } else {
-        await sendMessage(senderId, '❌ لم أجد منتج بهذا الاسم. جرب كلمة أخرى.');
+        await sendMessage(senderId, '❌ لم أجد منتج بهذا الاسم.\nجرب كلمة أخرى أو اضغط زر البحث.');
       }
     } catch (err) {
       await sendMessage(senderId, '⚠️ خطأ في البحث. حاول لاحقاً.');
@@ -122,19 +125,19 @@ async function handleMessage(senderId, message) {
 
 async function handlePostback(senderId, postback) {
   const payload = postback.payload;
-  
+
   if (payload === 'BROWSE_PRODUCTS') {
-    await sendButtons(senderId, 'اختر القسم:', [
-      { type: 'postback', title: 'كرت تيكون', payload: 'CATEGORY_tcon' },
-      { type: 'postback', title: 'اليمونتاسيون', payload: 'CATEGORY_alimentation' },
-      { type: 'postback', title: 'مين بورد', payload: 'CATEGORY_main-board' }
+    await sendButtons(senderId, '📂 اختر القسم:', [
+      { type: 'postback', title: '🖥️ كرت تيكون', payload: 'CATEGORY_tcon' },
+      { type: 'postback', title: '⚡ اليمونتاسيون', payload: 'CATEGORY_alimentation' },
+      { type: 'postback', title: '🔧 مين بورد', payload: 'CATEGORY_main-board' }
     ]);
   } else if (payload.startsWith('CATEGORY_')) {
     const category = payload.replace('CATEGORY_', '');
     try {
       const res = await axios.get(`${API_URL}/products?include_inactive=false`);
       const products = res.data.products.filter(p => p.category === category).slice(0, 10);
-      
+
       if (products.length > 0) {
         for (const product of products) {
           await sendButtons(senderId, `${product.name}\n💰 ${product.price} دج`, [
