@@ -271,7 +271,7 @@ async function handlePostback(senderId, postback) {
         break;
 
       case 'CONTACT':
-        await sendButtons(senderId, '📞 وسائل التواصل الدعم الفني:\n📱 الهاتف: 0673320066\n📧 الإيميل: contact@dzboard.com', [
+        await sendButtons(senderId, '📞 وسائل التواصل الدعم الفني:\n📱 الهاتف: 0673310066\n📧 الإيميل: contact@dzboard.com', [
           { type: 'postback', title: '🔙 القائمة الرئيسية', payload: 'MAIN_MENU' }
         ]);
         break;
