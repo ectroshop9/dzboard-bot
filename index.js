@@ -4,6 +4,9 @@ import axios from 'axios';
 const app = express();
 app.use(express.json());
 
+// ==========================================
+// 1. الإعدادات والمتغيرات
+// ==========================================
 const PORT = process.env.PORT || 5000;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN || '';
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'dzboard_verify_123';
@@ -13,17 +16,21 @@ const ADMIN_ID = process.env.ADMIN_ID || '100092160171252';
 
 const GREETINGS = new Set(['سلام', 'مرحبا', 'اهلا', 'السلام عليكم', 'صباح الخير', 'مساء الخير', 'hi', 'hello']);
 
+// دالة تأخير بسيطة
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ذاكرة المؤقتة للمستخدمين والحالات
 const userMemory = new Map();  // senderId -> { name, lastVisit }
 const userStates = new Map();  // senderId -> 'AWAITING_SEARCH' | 'AWAITING_TRACK'
 
-// تنظيف الرموز لتعزيز البحث عن موديلات اللوحات (T-Con / Main Board)
+// تنظيف الرموز لتعزيز البحث عن موديلات اللوحات
 function normalizeText(str = '') {
   return str.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+// ==========================================
+// 2. دوال الاتصال وجلب البيانات
+// ==========================================
 async function callFB_API(endpoint, payload) {
   try {
     await axios.post(endpoint, payload, {
@@ -34,7 +41,6 @@ async function callFB_API(endpoint, payload) {
   }
 }
 
-// 🟢 جلب اسم الزبون تلقائياً من فيسبوك
 async function getUserProfile(senderId) {
   if (userMemory.has(senderId)) return userMemory.get(senderId);
 
@@ -63,6 +69,9 @@ async function fetchProducts() {
   }
 }
 
+// ==========================================
+// 3. دوال إرسال الرسائل والقوائم
+// ==========================================
 async function sendAction(senderId, action = 'typing_on') {
   await callFB_API(FB_API_URL, { recipient: { id: senderId }, sender_action: action });
 }
@@ -71,6 +80,7 @@ async function sendText(senderId, text) {
   await callFB_API(FB_API_URL, { recipient: { id: senderId }, message: { text } });
 }
 
+// ✅ الأزرار العمودية للقوائم (باقية كما طلبت بدون تغيير)
 async function sendButtons(senderId, text, buttons) {
   await callFB_API(FB_API_URL, {
     recipient: { id: senderId },
@@ -83,21 +93,9 @@ async function sendButtons(senderId, text, buttons) {
   });
 }
 
+// ✅ نظام العرض الاحترافي للمنتجات فقط (كاروسيل/بطاقات أفقية)
 async function sendProductList(senderId, products) {
-  for (const product of products) {
-    if (product.image) {
-      await callFB_API(FB_API_URL, {
-        recipient: { id: senderId },
-        message: {
-          attachment: {
-            type: 'image',
-            payload: { url: product.image, is_reusable: true }
-          }
-        }
-      });
-      await sleep(200);
-    }
-
+  const elements = products.slice(0, 10).map(product => {
     const buttons = [
       { type: 'web_url', title: '🛒 اطلب الآن', url: `https://dzboard.vercel.app/checkout?product=${product.id}` }
     ];
@@ -106,15 +104,33 @@ async function sendProductList(senderId, products) {
       buttons.push({ type: 'web_url', title: '🔄 تحديث السوفتوير', url: product.update_url });
     }
 
-    const text = `📌 ${product.name}\n💰 ${product.price} دج\n📦 ${product.stock > 0 ? 'متوفر' : 'غير متوفر'}`;
-    
-    await sendButtons(senderId, text, buttons);
-    await sleep(300);
-  }
+    return {
+      title: product.name,
+      image_url: product.image || 'https://dzboard.vercel.app/default-product.jpg', // صورة افتراضية إن لم توجد
+      subtitle: `💰 ${product.price} دج | 📦 ${product.stock > 0 ? 'متوفر' : 'غير متوفر'}`,
+      buttons: buttons
+    };
+  });
+
+  await callFB_API(FB_API_URL, {
+    recipient: { id: senderId },
+    message: {
+      attachment: {
+        type: 'template',
+        payload: {
+          template_type: 'generic',
+          elements: elements
+        }
+      }
+    }
+  });
 }
 
+// ==========================================
+// 4. واجهات التفاعل (القوائم والتقييم)
+// ==========================================
 async function sendMainMenu(senderId) {
-  userStates.delete(senderId); // إعادة إرساء الحالة
+  userStates.delete(senderId);
   const user = await getUserProfile(senderId);
   const greeting = `👋 أهلاً بك ${user.name} في DZBoard! كيف يمكننا مساعدتك اليوم؟`;
   
@@ -133,11 +149,21 @@ async function notifyAdmin(message) {
 
 async function trackOrder(senderId, orderId) {
   await sendButtons(senderId, `📦 تفاصيل الطلب رقم #${orderId}:`, [
-    { type: 'web_url', title: '📍 تتبع حالة الشحنة', url: `https://platform.dhd-dz.com/suivi?code=${orderId}` },
+    { type: 'web_url', title: '📍 تتبع حالة الشحنة', url: `https://dzboard.vercel.app/track/${orderId}` },
     { type: 'postback', title: '🔙 القائمة الرئيسية', payload: 'MAIN_MENU' }
   ]);
 }
 
+async function askRating(senderId) {
+  await sendButtons(senderId, '💡 هل وجدت ما تبحث عنه؟ شاركنا تقييمك:', [
+    { type: 'postback', title: '👍 ممتاز', payload: 'RATING_GOOD' },
+    { type: 'postback', title: '👎 تحتاج تحسين', payload: 'RATING_BAD' }
+  ]);
+}
+
+// ==========================================
+// 5. معالجة الأحداث (Messages & Postbacks)
+// ==========================================
 async function handleMessage(senderId, message) {
   await sendAction(senderId, 'typing_on');
 
@@ -153,7 +179,7 @@ async function handleMessage(senderId, message) {
 
   const currentState = userStates.get(senderId);
 
-  // 1. معالجة حالة انتظار كود التتبع
+  // حالة انتظار كود التتبع
   if (currentState === 'AWAITING_TRACK' || lower.startsWith('trk-') || lower.startsWith('ord-')) {
     userStates.delete(senderId);
     const orderId = text.replace('#', '').trim();
@@ -161,14 +187,14 @@ async function handleMessage(senderId, message) {
     return;
   }
 
-  // 2. التحقق من الترحيب
+  // التحقق من الترحيب
   const isGreeting = [...GREETINGS].some(g => lower.includes(g));
   if (isGreeting && currentState !== 'AWAITING_SEARCH') {
     await sendMainMenu(senderId);
     return;
   }
 
-  // 3. معالجة البحث (سواء كان ينتظر بحثاً أو كتب اسم القطعة مباشرة)
+  // معالجة البحث
   userStates.delete(senderId);
   const cleanQuery = normalizeText(text);
 
@@ -182,7 +208,7 @@ async function handleMessage(senderId, message) {
 
     if (found.length > 0) {
       await sendText(senderId, `🔍 وجدنا ${found.length} نتائج لـ "${text}":`);
-      await sendProductList(senderId, found);
+      await sendProductList(senderId, found); // استخدام العرض الاحترافي الجديد
     } else {
       await sendButtons(senderId, `❌ لم نجد نتائج لـ "${text}".\nيمكنك تجريب اختيار القسم مباشرة:`, [
         { type: 'postback', title: '📂 تصفح الأقسام', payload: 'BROWSE_PRODUCTS' },
@@ -252,14 +278,15 @@ async function handlePostback(senderId, postback) {
         break;
 
       default:
+        // معالجة اختيار الأقسام
         if (payload.startsWith('CATEGORY_')) {
           const category = payload.replace('CATEGORY_', '');
           const products = await fetchProducts();
           const found = products.filter(p => p.category === category).slice(0, 10);
           
           if (found.length > 0) {
-            await sendProductList(senderId, found);
-            await sleep(500);
+            await sendProductList(senderId, found); // استخدام العرض الاحترافي الجديد
+            await sleep(1500); // تأخير بسيط حتى يشاهد المنتجات ثم نطلب رأيه
             await askRating(senderId);
           } else {
             await sendButtons(senderId, '📋 لا توجد قطع متوفرة في هذا القسم حالياً.', [
@@ -274,14 +301,11 @@ async function handlePostback(senderId, postback) {
   }
 }
 
-async function askRating(senderId) {
-  await sendButtons(senderId, '💡 هل وجدت ما تبحث عنه؟ شاركنا تقييمك:', [
-    { type: 'postback', title: '👍 ممتاز', payload: 'RATING_GOOD' },
-    { type: 'postback', title: '👎 تحتاج تحسين', payload: 'RATING_BAD' }
-  ]);
-}
+// ==========================================
+// 6. مسارات السيرفر (Webhooks)
+// ==========================================
 
-// 🟢 مسار لبرمجة القائمة السفلى وزر البدء تلقائياً في صفحة الفيسبوك
+// إعداد القائمة الدائمة (تُستدعى مرة واحدة من المتصفح)
 app.get('/setup-messenger', async (req, res) => {
   try {
     await axios.post(`https://graph.facebook.com/v18.0/me/messenger_profile`, {
@@ -303,6 +327,7 @@ app.get('/setup-messenger', async (req, res) => {
   }
 });
 
+// التحقق من الويب هوك الخاص بفيسبوك
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -315,11 +340,12 @@ app.get('/webhook', (req, res) => {
   }
 });
 
+// استقبال الأحداث من فيسبوك
 app.post('/webhook', async (req, res) => {
   const { body } = req;
   
   if (body.object === 'page') {
-    res.status(200).send('EVENT_RECEIVED');
+    res.status(200).send('EVENT_RECEIVED'); // رد فوري لفيسبوك لتجنب إعادة الإرسال
 
     for (const entry of body.entry) {
       for (const event of entry.messaging) {
