@@ -29,11 +29,10 @@ app.get('/webhook', (req, res) => {
 app.post('/webhook', (req, res) => {
   const { body } = req;
   if (body.object === 'page') {
-    res.status(200).send('EVENT_RECEIVED'); // الرد السريع لمنع Timeout
+    res.status(200).send('EVENT_RECEIVED');
 
     body.entry.forEach(entry => {
       entry.messaging.forEach(async event => {
-        // تجاهل رسائل البوت لنفسه (Echoes)
         if (event.message && event.message.is_echo) return;
 
         const senderId = event.sender.id;
@@ -63,7 +62,7 @@ const fbApi = axios.create({
 
 async function sendSenderAction(senderId, action = 'typing_on') {
   try { await fbApi.post('', { recipient: { id: senderId }, sender_action: action }); } 
-  catch (err) {} // التجاهل الصامت لأخطاء الـ Typing
+  catch (err) {}
 }
 
 async function sendMessage(senderId, text) {
@@ -71,25 +70,28 @@ async function sendMessage(senderId, text) {
   catch (err) { console.error('Message Error:', err.response?.data || err.message); }
 }
 
-// الردود السريعة أفضل لقوائم التصفح لأنها لا تتقيد بـ 3 أزرار فقط
-async function sendQuickReplies(senderId, text, replies) {
-  const quick_replies = replies.map(reply => ({
-    content_type: 'text',
-    title: reply.title,
-    payload: reply.payload
-  }));
-
+// ✅ أزرار Button Template (تعمل كـ Postback دائماً)
+async function sendButtons(senderId, text, buttons) {
   try {
-    await fbApi.post('', { recipient: { id: senderId }, message: { text, quick_replies } });
+    await fbApi.post('', {
+      recipient: { id: senderId },
+      message: {
+        attachment: {
+          type: 'template',
+          payload: { template_type: 'button', text, buttons }
+        }
+      }
+    });
   } catch (err) {
-    console.error('Quick Replies Error:', err.response?.data || err.message);
+    console.error('Buttons Error:', err.response?.data || err.message);
   }
 }
 
 async function sendProductCarousel(senderId, products) {
   const elements = products.map(product => {
     const buttons = [
-{ type: 'web_url', title: '🛒 اطلب الآن', url: 'https://dzboard.vercel.app/checkout' }    ];
+      { type: 'web_url', title: '🛒 اطلب الآن', url: 'https://dzboard.vercel.app/checkout' }
+    ];
     if (product.update_url) {
       buttons.push({ type: 'web_url', title: '🔄 تحديث السوفتوير', url: product.update_url });
     }
@@ -125,13 +127,11 @@ async function fetchProductsFromStore() {
 async function handleMessage(senderId, message) {
   await sendSenderAction(senderId, 'typing_on');
 
-  // 1. معالجة الصور
   if (message.attachments) {
     await sendMessage(senderId, '📸 استلمنا الصورة! سيقوم الفني بمراجعة القطعة والرد عليك قريباً.');
     return;
   }
 
-  // 2. معالجة الردود السريعة (Quick Replies تُعامل كرسالة عادية لكنها تحمل payload)
   if (message.quick_reply) {
     await handlePostback(senderId, { payload: message.quick_reply.payload });
     return;
@@ -141,14 +141,12 @@ async function handleMessage(senderId, message) {
   const lower = text.toLowerCase();
   if (!text) return;
 
-  // 3. التحيات
   const greetings = ['سلام', 'مرحبا', 'اهلا', 'hi', 'hello', 'bonjour', 'salut', 'السلام عليكم'];
   if (greetings.some(g => lower.includes(g))) {
-    sendMainMenu(senderId);
+    await sendMainMenu(senderId);
     return;
   }
 
-  // 4. البحث النصي الذكي
   try {
     const products = await fetchProductsFromStore();
     const found = products.filter(p => p.name && p.name.toLowerCase().includes(lower)).slice(0, 10);
@@ -157,13 +155,13 @@ async function handleMessage(senderId, message) {
       await sendMessage(senderId, `🔍 وجدنا ${found.length} نتائج مطابقة لـ "${text}":`);
       await sendProductCarousel(senderId, found);
     } else {
-      await sendQuickReplies(senderId, `❌ لم نجد قطعة باسم "${text}".\nجرب البحث برقم البوردة أو تصفح الأقسام:`, [
-        { title: '📂 تصفح الأقسام', payload: 'BROWSE_PRODUCTS' },
-        { title: '📞 تواصل معنا', payload: 'CONTACT' }
+      await sendButtons(senderId, `❌ لم نجد قطعة باسم "${text}".\nجرب البحث أو تصفح الأقسام:`, [
+        { type: 'postback', title: '📂 تصفح الأقسام', payload: 'BROWSE_PRODUCTS' },
+        { type: 'postback', title: '🔍 بحث جديد', payload: 'SEARCH' }
       ]);
     }
   } catch (err) {
-    await sendMessage(senderId, '⚠️ نعتذر، تعذر البحث حالياً بسبب تحديث في النظام.');
+    await sendMessage(senderId, '⚠️ نعتذر، تعذر البحث حالياً.');
   }
 }
 
@@ -172,32 +170,36 @@ async function handlePostback(senderId, postback) {
   const payload = postback.payload;
 
   switch (payload) {
-    case 'GET_STARTED': // عندما يضغط المستخدم الجديد على "بدء الاستخدام"
+    case 'GET_STARTED':
       await sendMessage(senderId, 'مرحباً بك في متجر DZBoard لقطع غيار الشاشات! 📺');
-      sendMainMenu(senderId);
+      await sendMainMenu(senderId);
       break;
 
     case 'BROWSE_PRODUCTS':
-      // استخدام Quick Replies هنا يتجاوز مشكلة 3 أزرار في فيسبوك
-      await sendQuickReplies(senderId, '📂 اختر القسم الذي تبحث عنه:', [
-        { title: '🖥️ كارت تيكون', payload: 'CATEGORY_tcon' },
-        { title: '⚡ كارت تغذية', payload: 'CATEGORY_alimentation' },
-        { title: '🔧 اللوحة الأم', payload: 'CATEGORY_main-board' },
-        { title: '🔩 قطع غيار', payload: 'CATEGORY_parts' },
-        { title: '🔙 رجوع', payload: 'MAIN_MENU' }
+      await sendButtons(senderId, '📂 اختر القسم الذي تبحث عنه:', [
+        { type: 'postback', title: '🖥️ كارت تيكون', payload: 'CATEGORY_tcon' },
+        { type: 'postback', title: '⚡ كارت تغذية', payload: 'CATEGORY_alimentation' },
+        { type: 'postback', title: '🔧 اللوحة الأم', payload: 'CATEGORY_main-board' }
+      ]);
+      break;
+
+    case 'CATEGORY_MORE':
+      await sendButtons(senderId, '📂 المزيد من الأقسام:', [
+        { type: 'postback', title: '🔩 قطع غيار', payload: 'CATEGORY_parts' },
+        { type: 'postback', title: '🔙 رجوع', payload: 'BROWSE_PRODUCTS' }
       ]);
       break;
 
     case 'CONTACT':
-      await sendMessage(senderId, '📞 **الدعم الفني والمبيعات:**\n📱 0673320066\n📧 contact@dzboard.com\n🌐 https://dzboard.vercel.app');
+      await sendMessage(senderId, '📞 الدعم الفني والمبيعات:\n📱 0673320066\n📧 contact@dzboard.com\n🌐 https://dzboard.vercel.app');
       break;
 
     case 'SEARCH':
-      await sendMessage(senderId, '🔍 أرسل الموديل أو رقم البوردة في رسالة (مثال: TP.HV320.PB801):');
+      await sendMessage(senderId, '🔍 أرسل الموديل أو رقم البوردة في رسالة:');
       break;
-      
+
     case 'MAIN_MENU':
-      sendMainMenu(senderId);
+      await sendMainMenu(senderId);
       break;
 
     default:
@@ -206,26 +208,25 @@ async function handlePostback(senderId, postback) {
         try {
           const products = await fetchProductsFromStore();
           const found = products.filter(p => p.category === category).slice(0, 10);
-          
+
           if (found.length > 0) {
             await sendProductCarousel(senderId, found);
           } else {
             await sendMessage(senderId, '📋 لا توجد قطع متوفرة في هذا القسم حالياً.');
           }
         } catch (err) {
-          await sendMessage(senderId, '⚠️ خطأ في تحميل الأقسام. حاول لاحقاً.');
+          await sendMessage(senderId, '⚠️ خطأ في تحميل الأقسام.');
         }
       }
       break;
   }
 }
 
-// دالة مساعدة لإرسال القائمة الرئيسية
 async function sendMainMenu(senderId) {
-  await sendQuickReplies(senderId, 'كيف يمكننا مساعدتك اليوم؟', [
-    { title: '🛒 تصفح الأقسام', payload: 'BROWSE_PRODUCTS' },
-    { title: '🔍 البحث', payload: 'SEARCH' },
-    { title: '📞 اتصل بنا', payload: 'CONTACT' }
+  await sendButtons(senderId, '👋 كيف يمكننا مساعدتك اليوم؟', [
+    { type: 'postback', title: '🛒 تصفح الأقسام', payload: 'BROWSE_PRODUCTS' },
+    { type: 'postback', title: '🔍 البحث', payload: 'SEARCH' },
+    { type: 'postback', title: '📞 اتصل بنا', payload: 'CONTACT' }
   ]);
 }
 
