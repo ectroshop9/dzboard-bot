@@ -13,7 +13,6 @@ app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-
   if (mode && token === VERIFY_TOKEN) {
     res.status(200).send(challenge);
   } else {
@@ -23,10 +22,8 @@ app.get('/webhook', (req, res) => {
 
 app.post('/webhook', (req, res) => {
   const { body } = req;
-
   if (body.object === 'page') {
     res.status(200).send('EVENT_RECEIVED');
-
     body.entry.forEach(entry => {
       entry.messaging.forEach(async event => {
         const senderId = event.sender.id;
@@ -66,24 +63,23 @@ async function sendMessage(senderId, text) {
   }
 }
 
-// ✅ أزرار 2x2 - Quick Replies ترتب تلقائياً
-async function sendQuickReplies(senderId, text, options) {
-  const quickReplies = options.slice(0, 13).map(opt => ({
-    content_type: 'text',
-    title: opt.title,
-    payload: opt.payload || opt.title
-  }));
-
+// ✅ أزرار postback - تعمل دائماً
+async function sendButtons(senderId, text, buttons) {
   try {
     await axios.post(
       `https://graph.facebook.com/v18.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`,
       {
         recipient: { id: senderId },
-        message: { text, quick_replies: quickReplies }
+        message: {
+          attachment: {
+            type: 'template',
+            payload: { template_type: 'button', text, buttons }
+          }
+        }
       }
     );
   } catch (err) {
-    console.error('Quick replies error:', err.response?.data || err.message);
+    console.error('Send buttons error:', err.response?.data || err.message);
   }
 }
 
@@ -125,7 +121,7 @@ async function handleMessage(senderId, message) {
   await sendSenderAction(senderId, 'typing_on');
 
   if (message.attachments) {
-    await sendMessage(senderId, '📸 استلمنا الصورة! سيقوم موظف الصيانة بالفحص وموافاتك بالتفاصيل قريباً.');
+    await sendMessage(senderId, '📸 استلمنا الصورة! سيقوم الفني بالفحص والرد عليك.');
     return;
   }
 
@@ -134,38 +130,29 @@ async function handleMessage(senderId, message) {
 
   if (!text) return;
 
-  // ✅ التحيات - أزرار 2x2
   const greetings = ['سلام', 'مرحبا', 'اهلا', 'hi', 'hello', 'bonjour', 'salut', 'السلام عليكم'];
   if (greetings.some(g => lower.includes(g))) {
-    await sendQuickReplies(senderId, '👋 أهلاً بك في DZBoard!\nكيف يمكننا مساعدتك؟', [
-      { title: '🛒 تصفح الأقسام', payload: 'BROWSE_PRODUCTS' },
-      { title: '🔍 البحث عن قطعة', payload: 'SEARCH' },
-      { title: '📞 اتصل بنا', payload: 'CONTACT' },
-      { title: 'ℹ️ معلومات المتجر', payload: 'ABOUT' }
+    await sendButtons(senderId, '👋 أهلاً بك في DZBoard!\nكيف يمكننا مساعدتك؟', [
+      { type: 'postback', title: '🛒 تصفح الأقسام', payload: 'BROWSE_PRODUCTS' },
+      { type: 'postback', title: '🔍 البحث', payload: 'SEARCH' },
+      { type: 'postback', title: '📞 اتصل بنا', payload: 'CONTACT' }
     ]);
     return;
   }
 
-  // ✅ البحث
   try {
-    const res = await axios.get(`${API_URL}/products`, {
-      params: { search: text, include_inactive: false }
-    });
-    let products = res.data.products || [];
-    if (products.length > 0 && res.data.filtered !== true) {
-      products = products.filter(p => p.name && p.name.toLowerCase().includes(lower));
-    }
-    const found = products.slice(0, 10);
+    const res = await axios.get(`${API_URL}/products?include_inactive=false`);
+    const products = res.data.products || [];
+    const found = products.filter(p => p.name && p.name.toLowerCase().includes(lower)).slice(0, 10);
 
     if (found.length > 0) {
       await sendMessage(senderId, `🔍 وجدنا ${found.length} نتائج:`);
       await sendProductCarousel(senderId, found);
     } else {
-      await sendQuickReplies(senderId, `❌ لم نجد "${text}".\nاختر قسماً:`, [
-        { title: '🖥️ كارت تيكون', payload: 'CATEGORY_tcon' },
-        { title: '⚡ كارت تغذية', payload: 'CATEGORY_alimentation' },
-        { title: '🔧 اللوحة الأم', payload: 'CATEGORY_main-board' },
-        { title: '🔍 بحث جديد', payload: 'SEARCH' }
+      await sendButtons(senderId, `❌ لم نجد "${text}".\nاختر قسماً:`, [
+        { type: 'postback', title: '🖥️ كارت تيكون', payload: 'CATEGORY_tcon' },
+        { type: 'postback', title: '⚡ كارت تغذية', payload: 'CATEGORY_alimentation' },
+        { type: 'postback', title: '🔧 اللوحة الأم', payload: 'CATEGORY_main-board' }
       ]);
     }
   } catch (err) {
@@ -179,20 +166,15 @@ async function handlePostback(senderId, postback) {
 
   switch (payload) {
     case 'BROWSE_PRODUCTS':
-      await sendQuickReplies(senderId, '📂 اختر القسم:', [
-        { title: '🖥️ كارت تيكون', payload: 'CATEGORY_tcon' },
-        { title: '⚡ كارت تغذية', payload: 'CATEGORY_alimentation' },
-        { title: '🔧 اللوحة الأم', payload: 'CATEGORY_main-board' },
-        { title: '🔩 قطع غيار', payload: 'CATEGORY_parts' }
+      await sendButtons(senderId, '📂 اختر القسم:', [
+        { type: 'postback', title: '🖥️ كارت تيكون', payload: 'CATEGORY_tcon' },
+        { type: 'postback', title: '⚡ كارت تغذية', payload: 'CATEGORY_alimentation' },
+        { type: 'postback', title: '🔧 اللوحة الأم', payload: 'CATEGORY_main-board' }
       ]);
       break;
 
     case 'CONTACT':
       await sendMessage(senderId, '📞 الدعم الفني:\n📱 0673320066\n📧 contact@dzboard.com');
-      break;
-
-    case 'ABOUT':
-      await sendMessage(senderId, 'ℹ️ DZBoard - متجر قطع غيار التلفزيونات\n✅ قطع أصلية ومضمونة\n🚚 توصيل لجميع الولايات');
       break;
 
     case 'SEARCH':
@@ -203,16 +185,10 @@ async function handlePostback(senderId, postback) {
       if (payload.startsWith('CATEGORY_')) {
         const category = payload.replace('CATEGORY_', '');
         try {
-          const res = await axios.get(`${API_URL}/products`, {
-            params: { category, include_inactive: false }
-          });
-          let products = res.data.products || [];
-          if (res.data.filtered !== true) {
-            products = products.filter(p => p.category === category);
-          }
-          const found = products.slice(0, 10);
-          if (found.length > 0) {
-            await sendProductCarousel(senderId, found);
+          const res = await axios.get(`${API_URL}/products?include_inactive=false`);
+          const products = (res.data.products || []).filter(p => p.category === category).slice(0, 10);
+          if (products.length > 0) {
+            await sendProductCarousel(senderId, products);
           } else {
             await sendMessage(senderId, '📋 لا توجد قطع في هذا القسم.');
           }
