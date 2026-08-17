@@ -63,7 +63,6 @@ async function sendMessage(senderId, text) {
   }
 }
 
-// ✅ أزرار postback - تعمل دائماً
 async function sendButtons(senderId, text, buttons) {
   try {
     await axios.post(
@@ -86,7 +85,7 @@ async function sendButtons(senderId, text, buttons) {
 async function sendProductCarousel(senderId, products) {
   const elements = products.map(product => {
     const buttons = [
-      { type: 'web_url', title: '🛒 اطلب الآن', url: `${STORE_URL}/product/${product.id}` }
+      { type: 'web_url', title: '🛒 اطلب الآن', url: 'https://dzboard.vercel.app/checkout' }
     ];
     if (product.update_url) {
       buttons.push({ type: 'web_url', title: '🔄 تحديث', url: product.update_url });
@@ -169,7 +168,8 @@ async function handlePostback(senderId, postback) {
       await sendButtons(senderId, '📂 اختر القسم:', [
         { type: 'postback', title: '🖥️ كارت تيكون', payload: 'CATEGORY_tcon' },
         { type: 'postback', title: '⚡ كارت تغذية', payload: 'CATEGORY_alimentation' },
-        { type: 'postback', title: '🔧 اللوحة الأم', payload: 'CATEGORY_main-board' }
+        { type: 'postback', title: '🔧 اللوحة الأم', payload: 'CATEGORY_main-board' },
+        { type: 'postback', title: '🔩 قطع غيار', payload: 'CATEGORY_parts' }
       ]);
       break;
 
